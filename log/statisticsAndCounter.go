@@ -6,6 +6,7 @@ import (
 	"log"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -16,6 +17,8 @@ var PRECISION = []int64{1, 5, 60, 100, 300, 3600, 18000, 86400}
 const (
 	knownKey   = "known:"
 	counterKey = "count:"
+
+	SAMPLE_COUNT = 10
 )
 
 func updateCounter(name string, count int64) {
@@ -84,4 +87,106 @@ func getCounter(name string, precision int64) ([]counterType, error) {
 		return values[i].Time < values[j].Time
 	})
 	return values, nil
+}
+
+func cleanCounters() {
+	if cli == nil {
+		redisCli("localhost:6379", "")
+	}
+	passes := int64(0)
+	for {
+		start := time.Now().Unix()
+		index := int64(0)
+		knownSets := cli.ZCard(context.Background(), knownKey).Val()
+		for index < knownSets {
+			hashItems := cli.ZRange(context.Background(), knownKey, index, index).Val()
+			index++
+			if len(hashItems) == 0 {
+				break
+			}
+			// 5:hits
+			hash := hashItems[0]
+			splitHash := strings.Split(hash, ":")
+			interval, err := strconv.ParseInt(splitHash[0], 10, 64)
+			if err != nil {
+				break
+			}
+			bInterval := int64(1)
+			if interval%60 != 0 {
+				bInterval = interval / 60
+			}
+
+			if passes%interval != 0 {
+				continue
+			}
+			hkey := counterKey + hash
+			cutoff := fmt.Sprintf("%d", time.Now().Unix()-SAMPLE_COUNT*bInterval)
+			hkeyItems := cli.HKeys(context.Background(), hkey).Val()
+			sort.Slice(hkeyItems, func(i, j int) bool {
+				return compareStrByInt(hkeyItems[i], hkeyItems[j])
+			})
+
+			foundIndex := binarySearch(hkeyItems, cutoff)
+			if foundIndex != -1 {
+				cli.HDel(context.Background(), hkey, hkeyItems[:foundIndex+1]...)
+				if foundIndex == len(hkeyItems)-1 {
+					// remove all, try to delete key
+					if err := cli.Watch(context.Background(), func(tx *redis.Tx) error {
+						tx.Watch(context.Background(), hkey)
+						if tx.HLen(context.Background(), hkey).Val() != 0 {
+							tx.Pipelined(context.Background(), func(pipeliner redis.Pipeliner) error {
+								_, err := pipeliner.ZRem(context.Background(), knownKey, hash).Result()
+								return err
+							})
+							index--
+						} else {
+							tx.Unwatch(context.Background())
+						}
+						// we should watch error
+						return nil
+					}); err != nil {
+						log.Println(err)
+					}
+				}
+			}
+		}
+		passes++
+		duration := min(time.Now().Unix()-start+1, 60)
+		<-time.NewTicker(time.Duration(max(60-duration, 1))).C
+	}
+}
+
+func binarySearch(items []string, item string) int {
+	start, end := 0, len(items)-1
+	for start <= end {
+		mid := start + (end-start)/2
+		if items[mid] == item {
+			return mid
+		} else if compareStrByInt(items[mid], item) {
+			start = mid + 1
+		} else {
+			end = mid - 1
+		}
+	}
+	return -1
+}
+
+func compareStrByInt(a, b string) bool {
+	i64, _ := strconv.ParseInt(a, 10, 64)
+	j64, _ := strconv.ParseInt(a, 10, 64)
+	return i64 < j64
+}
+
+func min(a, b int64) int64 {
+	if a > b {
+		return b
+	}
+	return a
+}
+
+func max(a, b int64) int {
+	if a > b {
+		return int(a)
+	}
+	return int(b)
 }
