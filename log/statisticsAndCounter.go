@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/stevenshuang/redis/utils"
 )
 
 var PRECISION = []int64{1, 5, 60, 100, 300, 3600, 18000, 86400}
@@ -151,8 +152,8 @@ func cleanCounters() {
 			}
 		}
 		passes++
-		duration := min(time.Now().Unix()-start+1, 60)
-		<-time.NewTicker(time.Duration(max(60-duration, 1))).C
+		duration := utils.Int64Min(time.Now().Unix()-start+1, 60)
+		<-time.NewTicker(time.Duration(utils.Int64Max(60-duration, 1))).C
 	}
 }
 
@@ -175,18 +176,4 @@ func compareStrByInt(a, b string) bool {
 	i64, _ := strconv.ParseInt(a, 10, 64)
 	j64, _ := strconv.ParseInt(a, 10, 64)
 	return i64 < j64
-}
-
-func min(a, b int64) int64 {
-	if a > b {
-		return b
-	}
-	return a
-}
-
-func max(a, b int64) int {
-	if a > b {
-		return int(a)
-	}
-	return int(b)
 }
