@@ -34,3 +34,25 @@ func Zrange(key string) {
 	}).Val()
 	log.Println(v)
 }
+
+func HGetAll(key string) {
+	if cli == nil {
+		redisCli("localhost:6379","")
+	}
+
+	vs := cli.HGetAll(context.Background(), key).Val()
+	log.Println(vs)
+}
+
+func ZScore(key, field string) {
+	if cli == nil {
+		redisCli("localhost:6379", "")
+	}
+
+	score, err := cli.ZScore(context.Background(), key, field).Result()
+	if err != nil {
+		log.Fatal("found error ",err)
+	}
+
+	log.Println("score: ", score)
+}
