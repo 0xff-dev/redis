@@ -31,7 +31,7 @@ func redisCli(host, password string) {
 	})
 }
 
-func acquireLock(lockName string, timeout int) string {
+func AcquireLock(lockName string, timeout int) string {
 	if cli == nil {
 		redisCli("localhost:6379", "")
 	}
@@ -48,7 +48,7 @@ func acquireLock(lockName string, timeout int) string {
 	return ""
 }
 
-func releaseLock(locakName, identifier string) bool {
+func ReleaseLock(locakName, identifier string) bool {
 	if cli == nil {
 		redisCli("localhost:6379", "")
 	}
